@@ -1,0 +1,15 @@
+# secrets
+.streamlit/secrets.toml
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv
+venv/
+.DS_Store
+
+# data (optional - if you don't want pilot logs in git)
+data/
