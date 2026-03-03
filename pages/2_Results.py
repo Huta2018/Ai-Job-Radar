@@ -3,10 +3,14 @@ import requests
 import urllib.parse
 import io
 import re
+import os
+import datetime
+import pandas as pd
 from pdfminer.high_level import extract_text
 from docx import Document
 
 st.title("📊 Smart Ranked Job Results")
+st.info("🚀 AI Job Radar – Pilot Version")
 
 # -------------------------------------
 # LOAD API KEY
@@ -14,7 +18,7 @@ st.title("📊 Smart Ranked Job Results")
 try:
     SERP_API_KEY = st.secrets["SERP_API_KEY"]
 except Exception:
-    st.error("SERP_API_KEY not found in .streamlit/secrets.toml")
+    st.error("SERP_API_KEY not found in secrets.")
     st.stop()
 
 query = st.session_state.get("query")
@@ -47,10 +51,9 @@ def extract_resume_text():
         return ""
 
 # -------------------------------------
-# PROPER SALARY PARSER (FIXED)
+# SALARY PARSER
 # -------------------------------------
 def extract_salary(job):
-
     extensions = job.get("detected_extensions", {})
     salary_text = extensions.get("salary")
 
@@ -59,10 +62,8 @@ def extract_salary(job):
 
     original = salary_text.lower()
     cleaned = original.replace(",", "")
-
     is_hourly = "hour" in original
 
-    # Extract numbers including decimals
     numbers = re.findall(r"\d+\.?\d*", cleaned)
 
     if not numbers:
@@ -72,11 +73,8 @@ def extract_salary(job):
 
     for num in numbers:
         value = float(num)
-
-        # Handle "k"
         if "k" in original:
             value *= 1000
-
         parsed.append(int(value))
 
     if len(parsed) >= 2:
@@ -94,61 +92,9 @@ def extract_salary(job):
         return f"${value:,} per year"
 
 # -------------------------------------
-# EXPERIENCE LEVEL DETECTION
-# -------------------------------------
-def detect_level(title):
-    title = title.lower()
-    if "senior" in title:
-        return "Senior"
-    elif "junior" in title:
-        return "Junior"
-    elif "lead" in title:
-        return "Lead"
-    elif "intern" in title:
-        return "Intern"
-    else:
-        return "Mid"
-
-# -------------------------------------
-# STRUCTURED SUMMARY
-# -------------------------------------
-def generate_structured_summary(description):
-
-    if not description:
-        return [], []
-
-    description = description.replace("\n", " ")
-    sentences = description.split(". ")
-
-    overview = []
-    requirements = []
-
-    requirement_keywords = [
-        "require", "must", "experience", "proficiency",
-        "degree", "skills", "knowledge", "ability",
-        "familiarity", "minimum"
-    ]
-
-    for s in sentences:
-        s = s.strip()
-
-        if len(s) < 60:
-            continue
-
-        if any(k in s.lower() for k in requirement_keywords):
-            if len(requirements) < 5:
-                requirements.append(s + ".")
-        else:
-            if len(overview) < 5:
-                overview.append(s + ".")
-
-    return overview, requirements
-
-# -------------------------------------
-# RANKING FUNCTION (1–10)
+# SCORE FUNCTION
 # -------------------------------------
 def compute_score(job, resume_text, query):
-
     title = job.get("title", "").lower()
     description = job.get("description", "").lower()
 
@@ -169,7 +115,7 @@ def compute_score(job, resume_text, query):
     return min(10, max(1, raw_score // 10))
 
 # -------------------------------------
-# CALL SERPAPI
+# CALL API
 # -------------------------------------
 params = {
     "engine": "google_jobs",
@@ -182,10 +128,6 @@ params = {
 response = requests.get("https://serpapi.com/search", params=params)
 data = response.json()
 
-if "error" in data:
-    st.error(data["error"])
-    st.stop()
-
 jobs = data.get("jobs_results", [])
 
 if not jobs:
@@ -194,54 +136,23 @@ if not jobs:
 
 resume_text = extract_resume_text()
 
-# -------------------------------------
-# RANK JOBS
-# -------------------------------------
 ranked_jobs = []
 
 for job in jobs:
     score = compute_score(job, resume_text, query)
     salary = extract_salary(job)
-    level = detect_level(job.get("title", ""))
-    ranked_jobs.append((score, salary, level, job))
+    ranked_jobs.append((score, salary, job))
 
 ranked_jobs.sort(key=lambda x: x[0], reverse=True)
 
 # -------------------------------------
-# SIDEBAR FILTERS
-# -------------------------------------
-st.sidebar.header("Filters")
-
-min_salary = st.sidebar.number_input("Minimum Salary (Yearly Base)", min_value=0, value=0)
-
-level_filter = st.sidebar.selectbox(
-    "Experience Level",
-    ["All", "Junior", "Mid", "Senior", "Lead", "Intern"]
-)
-
-filtered_jobs = []
-
-for score, salary, level, job in ranked_jobs:
-
-    if min_salary and salary:
-        numbers = re.findall(r"\d+", salary.replace(",", ""))
-        if numbers:
-            if int(numbers[0]) < min_salary:
-                continue
-
-    if level_filter != "All" and level != level_filter:
-        continue
-
-    filtered_jobs.append((score, salary, level, job))
-
-# -------------------------------------
 # DISPLAY TOP 25
 # -------------------------------------
-top_jobs = filtered_jobs[:25]
+top_jobs = ranked_jobs[:25]
 
 st.success(f"Showing Top {len(top_jobs)} Ranked Jobs")
 
-for index, (score, salary, level, job) in enumerate(top_jobs, start=1):
+for index, (score, salary, job) in enumerate(top_jobs, start=1):
 
     title = job.get("title", "No title")
     company = job.get("company_name", "N/A")
@@ -251,28 +162,11 @@ for index, (score, salary, level, job) in enumerate(top_jobs, start=1):
 
     st.subheader(f"{index}. {title}")
     st.write(f"⭐ Match Score: {score}/10")
-    st.write(f"Level: {level}")
     st.write(f"Company: {company}")
     st.write(f"Location: {location}")
 
     if salary:
-        st.write(f"Salary (Detected): {salary}")
-
-    overview, requirements = generate_structured_summary(description)
-
-    st.write("### 📝 Job Overview")
-    if overview:
-        for point in overview:
-            st.markdown(f"- {point}")
-    else:
-        st.write("Overview not available.")
-
-    st.write("### 🎯 Key Requirements")
-    if requirements:
-        for point in requirements:
-            st.markdown(f"- {point}")
-    else:
-        st.write("Requirements not clearly listed.")
+        st.write(f"Salary: {salary}")
 
     with st.expander("📖 View Full Description"):
         st.write(description)
@@ -294,12 +188,48 @@ for index, (score, salary, level, job) in enumerate(top_jobs, start=1):
 
     st.markdown("---")
 
-# -------------------------------------
-# SHOW MORE BUTTON
-# -------------------------------------
-if len(filtered_jobs) > 25:
-    if st.button("Show More Jobs", key="show_more_btn"):
-        for index, (score, salary, level, job) in enumerate(filtered_jobs[25:], start=26):
-            st.subheader(f"{index}. {job.get('title')}")
-            st.write(f"⭐ {score}/10")
-            st.markdown("---")
+# =====================================
+# FEEDBACK SECTION (ALWAYS AFTER JOBS)
+# =====================================
+
+st.markdown("## 💬 Quick Feedback")
+
+with st.form("feedback_form"):
+
+    helpful = st.radio(
+        "Is this ranking helpful?",
+        ["Yes 👍", "Somewhat 🤔", "No 👎"]
+    )
+
+    pay = st.radio(
+        "Would you pay $10/month for unlimited smart ranked job searches?",
+        ["Yes 💳", "Maybe 🤷", "No ❌"]
+    )
+
+    improvement = st.text_area("What should we improve?")
+
+    submitted = st.form_submit_button("Submit Feedback")
+
+    if submitted:
+
+        os.makedirs("data", exist_ok=True)
+
+        feedback_data = {
+            "timestamp": datetime.datetime.now(),
+            "user": st.session_state.get("user_email", "anonymous"),
+            "query": query,
+            "helpful": helpful,
+            "would_pay": pay,
+            "improvement": improvement
+        }
+
+        df = pd.DataFrame([feedback_data])
+
+        file_path = "data/feedback.csv"
+
+        if os.path.exists(file_path):
+            df.to_csv(file_path, mode="a", header=False, index=False)
+        else:
+            df.to_csv(file_path, index=False)
+
+        st.success("🙏 Thank you! Your feedback has been recorded.")

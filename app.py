@@ -14,3 +14,4 @@ if st.button("Continue", key="login_continue_btn"):
         st.switch_page("pages/1_Search.py")
     else:
         st.warning("Please enter your email.")
+
