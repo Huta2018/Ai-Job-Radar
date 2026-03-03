@@ -8,21 +8,21 @@ import datetime
 import pandas as pd
 from pdfminer.high_level import extract_text
 from docx import Document
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 st.title("📊 Smart Ranked Job Results")
-st.info("🚀 AI Job Radar – Pilot Version")
 
 # -------------------------------------
-# LOAD API KEY
+# Load API Key
 # -------------------------------------
 try:
     SERP_API_KEY = st.secrets["SERP_API_KEY"]
-except Exception:
-    st.error("SERP_API_KEY not found in secrets.")
+except:
+    st.error("API key not found.")
     st.stop()
 
 query = st.session_state.get("query")
-
 if not query:
     st.warning("No search query found.")
     st.stop()
@@ -30,7 +30,7 @@ if not query:
 st.write(f"Searching for: **{query}**")
 
 # -------------------------------------
-# RESUME EXTRACTION
+# Extract Resume (in memory only)
 # -------------------------------------
 def extract_resume_text():
     resume_bytes = st.session_state.get("resume_bytes")
@@ -41,17 +41,19 @@ def extract_resume_text():
 
     try:
         if resume_name.endswith(".pdf"):
-            return extract_text(io.BytesIO(resume_bytes)).lower()
+            return extract_text(io.BytesIO(resume_bytes))
         elif resume_name.endswith(".docx"):
             doc = Document(io.BytesIO(resume_bytes))
-            return "\n".join([p.text for p in doc.paragraphs]).lower()
+            return "\n".join([p.text for p in doc.paragraphs])
         else:
-            return resume_bytes.decode("utf-8").lower()
+            return ""
     except:
         return ""
 
+resume_text = extract_resume_text()
+
 # -------------------------------------
-# SALARY PARSER
+# Salary Extraction
 # -------------------------------------
 def extract_salary(job):
     extensions = job.get("detected_extensions", {})
@@ -60,62 +62,44 @@ def extract_salary(job):
     if not salary_text:
         return None
 
-    original = salary_text.lower()
-    cleaned = original.replace(",", "")
-    is_hourly = "hour" in original
-
+    cleaned = salary_text.replace(",", "").lower()
     numbers = re.findall(r"\d+\.?\d*", cleaned)
 
     if not numbers:
-        return None
+        return salary_text
 
-    parsed = []
-
+    values = []
     for num in numbers:
-        value = float(num)
-        if "k" in original:
-            value *= 1000
-        parsed.append(int(value))
+        val = float(num)
+        if "k" in cleaned:
+            val *= 1000
+        values.append(int(val))
 
-    if len(parsed) >= 2:
-        low, high = parsed[0], parsed[1]
-        if is_hourly:
-            return f"${low:,} - ${high:,} per hour"
-        else:
-            return f"${low:,} - ${high:,} per year"
-
-    value = parsed[0]
-
-    if is_hourly:
-        return f"${value:,} per hour"
-    else:
-        return f"${value:,} per year"
+    if len(values) >= 2:
+        return f"${values[0]:,} - ${values[1]:,}"
+    return f"${values[0]:,}"
 
 # -------------------------------------
-# SCORE FUNCTION
+# Matching Algorithm (TF-IDF)
 # -------------------------------------
-def compute_score(job, resume_text, query):
-    title = job.get("title", "").lower()
-    description = job.get("description", "").lower()
+def compute_similarity(resume_text, job_description):
 
-    raw_score = 0
+    if not resume_text:
+        return 5  # neutral score if no resume
 
-    for word in query.lower().split():
-        if word in title:
-            raw_score += 20
-        if word in description:
-            raw_score += 5
+    documents = [resume_text, job_description]
+    vectorizer = TfidfVectorizer(stop_words="english")
+    tfidf_matrix = vectorizer.fit_transform(documents)
 
-    resume_words = set(resume_text.split())
+    similarity = cosine_similarity(
+        tfidf_matrix[0:1], tfidf_matrix[1:2]
+    )[0][0]
 
-    for word in resume_words:
-        if len(word) > 4 and word in description:
-            raw_score += 1
-
-    return min(10, max(1, raw_score // 10))
+    score = int(similarity * 10)
+    return max(1, min(10, score))
 
 # -------------------------------------
-# CALL API
+# API Call
 # -------------------------------------
 params = {
     "engine": "google_jobs",
@@ -134,33 +118,32 @@ if not jobs:
     st.warning("No jobs found.")
     st.stop()
 
-resume_text = extract_resume_text()
-
 ranked_jobs = []
 
 for job in jobs:
-    score = compute_score(job, resume_text, query)
+    description = job.get("description", "")
+    score = compute_similarity(resume_text, description)
     salary = extract_salary(job)
     ranked_jobs.append((score, salary, job))
 
 ranked_jobs.sort(key=lambda x: x[0], reverse=True)
 
-# -------------------------------------
-# DISPLAY TOP 25
-# -------------------------------------
 top_jobs = ranked_jobs[:25]
 
 st.success(f"Showing Top {len(top_jobs)} Ranked Jobs")
 
-for index, (score, salary, job) in enumerate(top_jobs, start=1):
+# -------------------------------------
+# Display Jobs
+# -------------------------------------
+for idx, (score, salary, job) in enumerate(top_jobs, start=1):
 
-    title = job.get("title", "No title")
+    title = job.get("title", "No Title")
     company = job.get("company_name", "N/A")
     location = job.get("location", "N/A")
     description = job.get("description", "")
     related_links = job.get("related_links", [])
 
-    st.subheader(f"{index}. {title}")
+    st.subheader(f"{idx}. {title}")
     st.write(f"⭐ Match Score: {score}/10")
     st.write(f"Company: {company}")
     st.write(f"Location: {location}")
@@ -189,10 +172,10 @@ for index, (score, salary, job) in enumerate(top_jobs, start=1):
     st.markdown("---")
 
 # =====================================
-# FEEDBACK SECTION (ALWAYS AFTER JOBS)
+# Anonymous Feedback Section
 # =====================================
 
-st.markdown("## 💬 Quick Feedback")
+st.markdown("## 💬 Anonymous Feedback")
 
 with st.form("feedback_form"):
 
@@ -216,8 +199,7 @@ with st.form("feedback_form"):
 
         feedback_data = {
             "timestamp": datetime.datetime.now(),
-            "user": st.session_state.get("user_email", "anonymous"),
-            "query": query,
+            "anonymous_id": st.session_state.get("session_id"),
             "helpful": helpful,
             "would_pay": pay,
             "improvement": improvement
@@ -225,11 +207,11 @@ with st.form("feedback_form"):
 
         df = pd.DataFrame([feedback_data])
 
-        file_path = "data/feedback.csv"
+        file_path = "data/anonymous_feedback.csv"
 
         if os.path.exists(file_path):
             df.to_csv(file_path, mode="a", header=False, index=False)
         else:
             df.to_csv(file_path, index=False)
 
-        st.success("🙏 Thank you! Your feedback has been recorded.")
+        st.success("🙏 Thank you! Your feedback has been recorded anonymously.")
