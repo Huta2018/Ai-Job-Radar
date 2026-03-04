@@ -1,51 +1,70 @@
 import streamlit as st
-import pandas as pd
+import requests
 from supabase import create_client
 
-# Initialize Supabase connection
+st.title("🔎 Job Results")
+
+# ---------------------------
+# Supabase connection
+# ---------------------------
 supabase = create_client(
     st.secrets["SUPABASE_URL"],
     st.secrets["SUPABASE_KEY"]
 )
 
-st.title("🔎 Job Results")
+# ---------------------------
+# Get query from session
+# ---------------------------
+query = st.session_state.get("query")
 
-# Check if job results exist
-if "job_results" not in st.session_state:
-    st.warning("No jobs found. Please go back and run a search.")
+if not query:
+    st.warning("No search query found. Please go back and run a search.")
     st.stop()
 
-jobs = st.session_state["job_results"]
+# ---------------------------
+# Fetch jobs from SerpAPI
+# ---------------------------
+SERP_API_KEY = st.secrets.get("SERP_API_KEY")
 
+params = {
+    "engine": "google_jobs",
+    "q": query,
+    "api_key": SERP_API_KEY
+}
+
+response = requests.get("https://serpapi.com/search", params=params)
+data = response.json()
+
+jobs = data.get("jobs_results", [])
+
+if not jobs:
+    st.warning("No jobs found for this query.")
+    st.stop()
+
+# ---------------------------
 # Display jobs
-for i, job in enumerate(jobs[:25], start=1):
+# ---------------------------
+for i, job in enumerate(jobs[:20], start=1):
 
-    st.markdown(f"### {i}. {job['title']}")
-    st.markdown(f"**Company:** {job['company']}")
-    st.markdown(f"**Location:** {job['location']}")
+    st.markdown(f"### {i}. {job.get('title','Unknown')}")
 
-    if job.get("salary"):
-        st.markdown(f"**Salary:** {job['salary']}")
+    st.markdown(f"**Company:** {job.get('company_name','N/A')}")
+    st.markdown(f"**Location:** {job.get('location','N/A')}")
 
-    st.markdown("**Job Summary:**")
+    if job.get("description"):
+        with st.expander("Job Description"):
+            st.write(job["description"])
 
-    if "summary" in job:
-        for bullet in job["summary"]:
-            st.markdown(f"- {bullet}")
-
-    if job.get("apply_link"):
-        st.markdown(f"[Apply Here]({job['apply_link']})")
-
-    with st.expander("Full Job Description"):
-        st.write(job.get("description", "No description available"))
+    if job.get("related_links"):
+        for link in job["related_links"]:
+            st.markdown(f"[Apply Here]({link['link']})")
 
     st.markdown("---")
 
 
-# -------------------------------
-# FEEDBACK SECTION
-# -------------------------------
-
+# ---------------------------
+# Feedback Section
+# ---------------------------
 st.markdown("## 💬 Anonymous Feedback")
 
 with st.form("feedback_form"):
@@ -60,9 +79,7 @@ with st.form("feedback_form"):
         ["Yes 💳", "Maybe 🤷", "No ❌"]
     )
 
-    improvement = st.text_area(
-        "What should we improve?"
-    )
+    improvement = st.text_area("What should we improve?")
 
     submitted = st.form_submit_button("Submit Feedback")
 
@@ -70,15 +87,16 @@ with st.form("feedback_form"):
 
         try:
 
-            response = supabase.table("feedback").insert({
-                "anonymous_id": st.session_state.get("session_id"),
+            supabase.table("feedback").insert({
+                "anonymous_id": st.session_state.get("user_email", "anon"),
                 "helpful": helpful,
                 "would_pay": pay,
                 "improvement": improvement
             }).execute()
 
-            st.success("🙏 Thank you! Feedback recorded securely.")
+            st.success("🙏 Thank you! Feedback recorded.")
 
         except Exception as e:
-            st.error("Error saving feedback.")
+
+            st.error("Could not save feedback.")
             st.write(e)
