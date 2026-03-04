@@ -43,10 +43,9 @@ if not resume_exists:
         with open(resume_path, "wb") as f:
             f.write(resume_file.getbuffer())
         st.success("Resume saved successfully!")
-
-# -------------------------------------
+# ---------------------------------------
 # Job Search Input
-# -------------------------------------
+# ---------------------------------------
 role = st.text_input("Field / Role", placeholder="e.g., Data Scientist")
 
 if st.button("Search"):
@@ -55,6 +54,7 @@ if st.button("Search"):
         st.warning("Please enter a job field.")
         st.stop()
 
+    # Save query
     st.session_state["query"] = role
 
     # Load resume text into session
@@ -63,4 +63,8 @@ if st.button("Search"):
             st.session_state["resume_bytes"] = f.read()
             st.session_state["resume_name"] = f"{user_email}.pdf"
 
+    # IMPORTANT: initialize job_results so Results page does not crash
+    st.session_state["job_results"] = []
+
+    # Go to results page
     st.switch_page("pages/2_Results.py")
