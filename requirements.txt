@@ -4,3 +4,4 @@ pandas
 pdfminer.six
 python-docx
 scikit-learn
+supabase
