@@ -1,41 +1,68 @@
 import streamlit as st
-import uuid
-
-st.set_page_config(page_title="AI Job Radar", layout="wide")
+import os
 
 st.title("🧭 AI Job Radar")
-st.info("🚀 Privacy-First Beta Version")
 
-# -----------------------------------
-# Generate Anonymous Session ID
-# -----------------------------------
-if "session_id" not in st.session_state:
-    st.session_state["session_id"] = str(uuid.uuid4())
+st.markdown("🚀 Privacy-First Beta Version")
 
-st.caption("🔒 Your resume is processed in-memory only and is never stored.")
+st.write("🔒 Your resume is processed in memory only and is never stored.")
 
-# -----------------------------------
-# Resume Upload (NOT stored)
-# -----------------------------------
-uploaded_file = st.file_uploader(
+# ------------------------
+# Upload Resume
+# ------------------------
+
+resume_file = st.file_uploader(
     "Upload your resume (PDF or DOCX)",
-    type=["pdf", "docx"]
+    type=["pdf","docx"]
 )
 
-if uploaded_file:
-    st.session_state["resume_bytes"] = uploaded_file.read()
-    st.session_state["resume_name"] = uploaded_file.name
-    st.success("Resume uploaded successfully.")
+# ------------------------
+# Job Role
+# ------------------------
 
-# -----------------------------------
-# Job Search Input
-# -----------------------------------
-query = st.text_input("Enter job role (e.g., Data Scientist)")
+role = st.text_input(
+    "Enter job role (e.g., Data Scientist)"
+)
+
+# ------------------------
+# Country Selection
+# ------------------------
+
+countries = [
+    ("United States","us"),
+    ("Canada","ca"),
+    ("United Kingdom","uk"),
+    ("Australia","au"),
+    ("Germany","de"),
+    ("Netherlands","nl"),
+    ("India","in"),
+    ("Singapore","sg")
+]
+
+country = st.selectbox(
+    "Select country for job search",
+    countries,
+    format_func=lambda x: x[0]
+)
+
+# ------------------------
+# Search Button
+# ------------------------
 
 if st.button("Search Jobs"):
 
-    if not query:
-        st.warning("Please enter a job title.")
-    else:
-        st.session_state["query"] = query
-        st.switch_page("pages/2_Results.py")
+    if not role:
+        st.warning("Please enter a job role.")
+        st.stop()
+
+    if resume_file is None:
+        st.warning("Please upload your resume.")
+        st.stop()
+
+    st.session_state["query"] = role
+    st.session_state["country_name"] = country[0]
+    st.session_state["country_code"] = country[1]
+
+    st.session_state["resume_bytes"] = resume_file.read()
+
+    st.switch_page("pages/2_Results.py")
