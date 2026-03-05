@@ -14,13 +14,13 @@ from sklearn.metrics.pairwise import cosine_similarity
 st.title("🔎 Job Results")
 
 # -----------------------------
-# OpenAI Client
+# OpenAI
 # -----------------------------
 
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # -----------------------------
-# Supabase Client
+# Supabase
 # -----------------------------
 
 supabase = create_client(
@@ -29,10 +29,11 @@ supabase = create_client(
 )
 
 # -----------------------------
-# Get Search Query
+# Query + Country
 # -----------------------------
 
 query = st.session_state.get("query")
+country = st.session_state.get("country","United States")
 
 if not query:
     st.warning("No search query found.")
@@ -53,25 +54,33 @@ if resume_bytes:
         resume_text = ""
 
 # -----------------------------
-# Fetch Jobs from SerpAPI
+# Fetch Jobs (Multiple Pages)
 # -----------------------------
 
 SERP_API_KEY = st.secrets["SERP_API_KEY"]
 
-params = {
-    "engine": "google_jobs",
-    "q": query,
-    "api_key": SERP_API_KEY
-}
+jobs = []
 
-response = requests.get(
-    "https://serpapi.com/search",
-    params=params
-)
+for page in range(5):
 
-data = response.json()
+    params = {
+        "engine":"google_jobs",
+        "q":query,
+        "location":country,
+        "start":page*10,
+        "api_key":SERP_API_KEY
+    }
 
-jobs = data.get("jobs_results", [])
+    response = requests.get(
+        "https://serpapi.com/search",
+        params=params
+    )
+
+    data = response.json()
+
+    new_jobs = data.get("jobs_results",[])
+
+    jobs.extend(new_jobs)
 
 if not jobs:
     st.warning("No jobs found.")
@@ -81,7 +90,7 @@ if not jobs:
 # Resume ↔ Job Similarity
 # -----------------------------
 
-job_descriptions = [job.get("description","") for job in jobs]
+job_descriptions = [j.get("description","") for j in jobs]
 
 if resume_text and job_descriptions:
 
@@ -117,233 +126,171 @@ def generate_application_materials(
     job_description
 ):
 
-    prompt = f"""
+    prompt=f"""
 You are a professional career assistant.
 
-Goal:
 Create resume improvement suggestions and a cover letter.
 
 Rules:
 - Do NOT invent experience
-- Do NOT change resume meaning
 - Only emphasize relevant skills
-- Keep content truthful
 
-Return exactly:
+Return:
 
 RESUME ENHANCEMENTS
-3-5 bullets
+3 bullets
 
-SUGGESTED RESUME BULLETS
+SUGGESTED BULLETS
 3 bullets
 
 COVER LETTER
-short professional letter
 
 Resume:
 {resume_text}
 
-Job Title:
-{job_title}
-
-Company:
-{company}
-
-Location:
-{location}
+Job Title:{job_title}
+Company:{company}
+Location:{location}
 
 Job Description:
 {job_description}
 """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0.2,
-        messages=[{"role":"user","content":prompt}]
-    )
+    try:
 
-    return response.choices[0].message.content
+        response=client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.2,
+            messages=[{"role":"user","content":prompt}]
+        )
 
+        return response.choices[0].message.content
+
+    except:
+        return "AI generation temporarily unavailable."
 
 # -----------------------------
-# Display Jobs
+# Display Top 25 Jobs
 # -----------------------------
 
-for i,job in enumerate(jobs[:50],start=1):
+st.subheader("Top Job Matches")
 
-    title = job.get("title","Unknown")
-    company = job.get("company_name","N/A")
-    location = job.get("location","N/A")
-    description = job.get("description","")
+top_jobs = jobs[:25]
 
-    salary = job.get(
+for i,job in enumerate(top_jobs,start=1):
+
+    title=job.get("title","Unknown")
+    company=job.get("company_name","N/A")
+    location=job.get("location","N/A")
+
+    description=job.get("description","")
+
+    salary=job.get(
         "detected_extensions",{}
     ).get("salary","Not listed")
 
-    match_score = job.get("match_score",0)
+    score=job.get("match_score",0)
 
     st.markdown(f"### {i}. {title}")
 
-    st.markdown(f"**Match Score:** {match_score}%")
-    st.markdown(f"**Company:** {company}")
-    st.markdown(f"**Location:** {location}")
-    st.markdown(f"**Salary:** {salary}")
+    st.write(f"Match Score: {score}%")
+    st.write(company)
+    st.write(location)
+    st.write(f"Salary: {salary}")
 
-    # Summary bullets
     if description:
 
-        sentences = re.split(r'[.!?]',description)
+        sentences=re.split(r'[.!?]',description)
 
-        st.markdown("**Key Highlights:**")
+        st.write("Key Highlights:")
 
         for s in sentences[:4]:
             if len(s.strip())>40:
-                st.markdown(f"- {s.strip()}")
+                st.write("-",s.strip())
 
-    # Full description
     if description:
-        with st.expander("Read Full Job Description"):
+
+        with st.expander("Full Description"):
             st.write(description)
 
-    # Apply links
     if job.get("apply_options"):
 
-        st.markdown("**Apply Here:**")
+        st.write("Apply:")
 
         for option in job["apply_options"]:
 
-            name = option.get("title","Apply")
-            link = option.get("link")
+            name=option.get("title","Apply")
+            link=option.get("link")
 
             if link:
-                st.markdown(f"- [{name}]({link})")
+                st.markdown(f"[{name}]({link})")
 
-    # Job source
-    if job.get("via"):
-        st.markdown(f"**Source:** {job['via']}")
+    with st.expander("Generate Resume + Cover Letter"):
 
-    # AI Resume Generator
-    with st.expander("🧠 Generate Resume + Cover Letter"):
+        if st.button(
+            f"Generate {i}",
+            key=f"ai_{i}"
+        ):
 
-        if st.button(f"Generate Materials {i}",key=f"ai_{i}"):
+            output=generate_application_materials(
+                resume_text,
+                title,
+                company,
+                location,
+                description
+            )
 
-            if not resume_text:
-                st.warning("Upload resume first.")
-
-            else:
-
-                with st.spinner("Generating AI suggestions..."):
-
-                    ai_output = generate_application_materials(
-                        resume_text,
-                        title,
-                        company,
-                        location,
-                        description
-                    )
-
-                st.markdown("### AI Application Assistant")
-                st.code(ai_output)
+            st.code(output)
 
     st.markdown("---")
 
-
 # -----------------------------
-# Skill Gap Analysis
-# -----------------------------
-
-st.markdown("## 🧠 Career Growth Suggestions")
-
-skills = [
-"python","sql","machine learning","deep learning",
-"tensorflow","pytorch","docker","kubernetes",
-"aws","spark","pandas","statistics",
-"data visualization","power bi","tableau","nlp"
-]
-
-resume_lower = resume_text.lower()
-
-resume_skills = [s for s in skills if s in resume_lower]
-
-job_skill_counts = {}
-
-for job in jobs[:20]:
-
-    desc = job.get("description","").lower()
-
-    for s in skills:
-
-        if s in desc:
-            job_skill_counts[s] = job_skill_counts.get(s,0)+1
-
-missing = []
-
-for skill,count in job_skill_counts.items():
-
-    if skill not in resume_skills:
-        missing.append((skill,count))
-
-missing = sorted(
-    missing,
-    key=lambda x:x[1],
-    reverse=True
-)
-
-if missing:
-
-    st.markdown("### Skills To Strengthen")
-
-    for skill,count in missing[:5]:
-        st.markdown(f"- **{skill.title()}** (seen in {count} jobs)")
-
-    st.markdown("### Suggested Learning Topics")
-
-    learning_map = {
-        "sql":"Advanced SQL for Data Analytics",
-        "aws":"Cloud Computing for Data Science",
-        "docker":"Containerizing Machine Learning Models",
-        "spark":"Big Data Processing with Spark",
-        "nlp":"Natural Language Processing Applications"
-    }
-
-    for skill,_ in missing[:5]:
-
-        topic = learning_map.get(
-            skill,
-            f"Advanced {skill.title()} Applications"
-        )
-
-        st.markdown(f"- {topic}")
-
-# -----------------------------
-# Feedback Section
+# Show More Jobs
 # -----------------------------
 
-st.markdown("## 💬 Feedback")
+if len(jobs)>25:
 
-with st.form("feedback_form"):
+    if st.button("Show More Jobs"):
 
-    st.write("Help us improve this tool!")
+        for i,job in enumerate(jobs[25:],start=26):
 
-    last_name = st.text_input(
-        "Last Name (optional – helps us understand diversity of usage)"
+            title=job.get("title","Unknown")
+            company=job.get("company_name","N/A")
+            location=job.get("location","N/A")
+
+            st.markdown(f"### {i}. {title}")
+            st.write(company)
+            st.write(location)
+
+            st.markdown("---")
+
+# -----------------------------
+# Feedback
+# -----------------------------
+
+st.markdown("## Feedback")
+
+with st.form("feedback"):
+
+    last_name=st.text_input(
+        "Last Name (optional)"
     )
 
-    helpful = st.radio(
-        "Is the job ranking helpful?",
-        ["Yes 👍","Somewhat 🤔","No 👎"]
+    helpful=st.radio(
+        "Is this helpful?",
+        ["Yes","Somewhat","No"]
     )
 
-    pay = st.radio(
-        "Would you pay $10/month for unlimited smart ranked job searches?",
-        ["Yes 💳","Maybe 🤷","No ❌"]
+    pay=st.radio(
+        "Would you pay $10/month?",
+        ["Yes","Maybe","No"]
     )
 
-    improvement = st.text_area(
-        "What should we improve?"
+    improvement=st.text_area(
+        "Suggestions"
     )
 
-    submit = st.form_submit_button("Submit Feedback")
+    submit=st.form_submit_button("Submit")
 
     if submit:
 
@@ -351,23 +298,15 @@ with st.form("feedback_form"):
 
             supabase.table("feedback").insert({
 
-                "anonymous_id": st.session_state.get(
-                    "session_id","anon"
-                ),
-
-                "last_name": last_name,
-
-                "helpful": helpful,
-
-                "would_pay": pay,
-
-                "improvement": improvement
+                "last_name":last_name,
+                "helpful":helpful,
+                "would_pay":pay,
+                "improvement":improvement
 
             }).execute()
 
-            st.success("Thank you for the feedback!")
+            st.success("Feedback submitted")
 
-        except Exception as e:
+        except:
 
-            st.error("Could not save feedback.")
-            st.write(e)
+            st.error("Could not save feedback")

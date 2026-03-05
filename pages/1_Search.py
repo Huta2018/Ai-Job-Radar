@@ -3,77 +3,90 @@ import os
 
 st.title("🔎 Job Search")
 
-# ---------------------------------------
-# Get user email from session
-# ---------------------------------------
 user_email = st.session_state.get("user_email")
 
 if not user_email:
     st.warning("Please login first.")
     st.stop()
 
-# ---------------------------------------
-# Resume storage path
-# ---------------------------------------
+# -------------------------
+# Resume storage
+# -------------------------
+
 RESUME_FOLDER = "data/resumes"
 os.makedirs(RESUME_FOLDER, exist_ok=True)
 
-resume_path = os.path.join(RESUME_FOLDER, f"{user_email}.pdf")
+resume_path = os.path.join(
+    RESUME_FOLDER,
+    f"{user_email}.pdf"
+)
 
-# ---------------------------------------
-# Check if resume already saved
-# ---------------------------------------
 resume_exists = os.path.exists(resume_path)
 
 if resume_exists:
-    st.success("Resume already saved for this account.")
+
+    st.success("Resume already uploaded.")
 
     if st.button("Replace Resume"):
         resume_exists = False
 
+# -------------------------
+# Upload Resume
+# -------------------------
 
-# ---------------------------------------
-# Upload resume if not saved
-# ---------------------------------------
 if not resume_exists:
 
     resume_file = st.file_uploader(
-        "Upload Resume (PDF only)",
+        "Upload Resume (PDF)",
         type=["pdf"]
     )
 
-    if resume_file is not None:
+    if resume_file:
 
-        with open(resume_path, "wb") as f:
+        with open(resume_path,"wb") as f:
             f.write(resume_file.getbuffer())
 
-        st.success("Resume saved successfully.")
+        st.success("Resume uploaded successfully.")
 
+# -------------------------
+# Job Search Inputs
+# -------------------------
 
-# ---------------------------------------
-# Job Search Input
-# ---------------------------------------
+st.subheader("Search Jobs")
+
 role = st.text_input(
-    "Field / Role",
-    placeholder="e.g., Data Scientist"
+    "Job Field",
+    placeholder="e.g. Data Scientist"
 )
 
-if st.button("Search"):
+country = st.selectbox(
+    "Select Country",
+    [
+        "United States",
+        "Canada",
+        "United Kingdom",
+        "Australia",
+        "Germany",
+        "Netherlands",
+        "India",
+        "Singapore"
+    ]
+)
+
+if st.button("Search Jobs"):
 
     if not role:
         st.warning("Please enter a job field.")
         st.stop()
 
-    # Save query for results page
     st.session_state["query"] = role
+    st.session_state["country"] = country
 
-    # Load resume into session
+    # load resume
     if os.path.exists(resume_path):
 
-        with open(resume_path, "rb") as f:
+        with open(resume_path,"rb") as f:
 
             st.session_state["resume_bytes"] = f.read()
-            st.session_state["resume_name"] = f"{user_email}.pdf"
 
-    # Go to results page
     st.switch_page("pages/2_Results.py")
