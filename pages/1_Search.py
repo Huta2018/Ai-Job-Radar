@@ -107,3 +107,5 @@ if st.button("Search Jobs"):
 
     # Go to results page
     st.switch_page("pages/2_Results.py")
+
+st.write("VERSION 3 – COUNTRY SEARCH ENABLED")
