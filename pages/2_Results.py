@@ -4,46 +4,28 @@ import io
 import re
 
 from pdfminer.high_level import extract_text
-from supabase import create_client
-from openai import OpenAI
-
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from openai import OpenAI
 
 st.title("🔎 Job Results")
 
 # -----------------------------
-# OpenAI
-# -----------------------------
-
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-
-# -----------------------------
-# Supabase
-# -----------------------------
-
-supabase = create_client(
-    st.secrets["SUPABASE_URL"],
-    st.secrets["SUPABASE_KEY"]
-)
-
-# -----------------------------
-# Query + Country
+# Load session data
 # -----------------------------
 
 query = st.session_state.get("query")
-country = st.session_state.get("country","United States")
+country = st.session_state.get("country_name", "United States")
+resume_bytes = st.session_state.get("resume_bytes")
 
 if not query:
     st.warning("No search query found.")
     st.stop()
 
 # -----------------------------
-# Resume Extraction
+# Extract resume text
 # -----------------------------
-
-resume_bytes = st.session_state.get("resume_bytes")
 
 resume_text = ""
 
@@ -54,21 +36,22 @@ if resume_bytes:
         resume_text = ""
 
 # -----------------------------
-# Fetch Jobs (Multiple Pages)
+# Fetch jobs from SerpAPI
 # -----------------------------
 
 SERP_API_KEY = st.secrets["SERP_API_KEY"]
 
 jobs = []
 
-for page in range(5):
+for start in range(0, 50, 10):
 
     params = {
-        "engine":"google_jobs",
-        "q":query,
-        "location":country,
-        "start":page*10,
-        "api_key":SERP_API_KEY
+        "engine": "google_jobs",
+        "q": f"{query} jobs",
+        "location": country,
+        "hl": "en",
+        "start": start,
+        "api_key": SERP_API_KEY
     }
 
     response = requests.get(
@@ -78,16 +61,15 @@ for page in range(5):
 
     data = response.json()
 
-    new_jobs = data.get("jobs_results",[])
-
-    jobs.extend(new_jobs)
+    if "jobs_results" in data:
+        jobs.extend(data["jobs_results"])
 
 if not jobs:
-    st.warning("No jobs found.")
+    st.warning("No jobs found. Try a broader job title.")
     st.stop()
 
 # -----------------------------
-# Resume ↔ Job Similarity
+# Resume similarity scoring
 # -----------------------------
 
 job_descriptions = [j.get("description","") for j in jobs]
@@ -105,42 +87,40 @@ if resume_text and job_descriptions:
         tfidf[1:]
     ).flatten()
 
-    for i,job in enumerate(jobs):
-        job["match_score"] = round(scores[i]*100,2)
+    for i, job in enumerate(jobs):
+        job["match_score"] = round(scores[i] * 100, 2)
 
     jobs = sorted(
         jobs,
-        key=lambda x:x.get("match_score",0),
+        key=lambda x: x.get("match_score", 0),
         reverse=True
     )
 
 # -----------------------------
-# AI Resume + Cover Letter
+# OpenAI client
 # -----------------------------
+
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 def generate_application_materials(
     resume_text,
     job_title,
     company,
-    location,
     job_description
 ):
 
-    prompt=f"""
+    prompt = f"""
 You are a professional career assistant.
 
-Create resume improvement suggestions and a cover letter.
+Create resume improvement suggestions and a short cover letter.
 
 Rules:
-- Do NOT invent experience
-- Only emphasize relevant skills
+- Do not invent experience
+- Only improve wording
 
 Return:
 
-RESUME ENHANCEMENTS
-3 bullets
-
-SUGGESTED BULLETS
+RESUME IMPROVEMENTS
 3 bullets
 
 COVER LETTER
@@ -148,9 +128,8 @@ COVER LETTER
 Resume:
 {resume_text}
 
-Job Title:{job_title}
-Company:{company}
-Location:{location}
+Job Title: {job_title}
+Company: {company}
 
 Job Description:
 {job_description}
@@ -158,7 +137,7 @@ Job Description:
 
     try:
 
-        response=client.chat.completions.create(
+        response = client.chat.completions.create(
             model="gpt-4o-mini",
             temperature=0.2,
             messages=[{"role":"user","content":prompt}]
@@ -167,76 +146,80 @@ Job Description:
         return response.choices[0].message.content
 
     except:
-        return "AI generation temporarily unavailable."
+        return "AI generation unavailable."
 
 # -----------------------------
-# Display Top 25 Jobs
+# Display top matches
 # -----------------------------
 
 st.subheader("Top Job Matches")
 
 top_jobs = jobs[:25]
 
-for i,job in enumerate(top_jobs,start=1):
+for i, job in enumerate(top_jobs, start=1):
 
-    title=job.get("title","Unknown")
-    company=job.get("company_name","N/A")
-    location=job.get("location","N/A")
+    title = job.get("title","Unknown")
+    company = job.get("company_name","N/A")
+    location = job.get("location","N/A")
 
-    description=job.get("description","")
+    description = job.get("description","")
 
-    salary=job.get(
-        "detected_extensions",{}
+    salary = job.get(
+        "detected_extensions",
+        {}
     ).get("salary","Not listed")
 
-    score=job.get("match_score",0)
+    score = job.get("match_score",0)
 
     st.markdown(f"### {i}. {title}")
 
     st.write(f"Match Score: {score}%")
-    st.write(company)
-    st.write(location)
+    st.write(f"Company: {company}")
+    st.write(f"Location: {location}")
     st.write(f"Salary: {salary}")
 
+    # Short summary
     if description:
 
-        sentences=re.split(r'[.!?]',description)
+        sentences = re.split(r'[.!?]', description)
 
-        st.write("Key Highlights:")
+        st.write("Highlights:")
 
-        for s in sentences[:4]:
-            if len(s.strip())>40:
-                st.write("-",s.strip())
+        for s in sentences[:3]:
+            if len(s.strip()) > 40:
+                st.write("-", s.strip())
 
+    # Full description
     if description:
 
-        with st.expander("Full Description"):
+        with st.expander("Full Job Description"):
             st.write(description)
 
+    # Apply links
     if job.get("apply_options"):
 
-        st.write("Apply:")
+        st.write("Apply Links:")
 
         for option in job["apply_options"]:
 
-            name=option.get("title","Apply")
-            link=option.get("link")
+            name = option.get("title","Apply")
+            link = option.get("link")
 
             if link:
                 st.markdown(f"[{name}]({link})")
 
+    # AI resume helper
     with st.expander("Generate Resume + Cover Letter"):
 
         if st.button(
-            f"Generate {i}",
+            f"Generate for job {i}",
             key=f"ai_{i}"
         ):
 
-            output=generate_application_materials(
+            output = generate_application_materials(
                 resume_text,
                 title,
                 company,
-                location,
                 description
             )
 
@@ -245,68 +228,21 @@ for i,job in enumerate(top_jobs,start=1):
     st.markdown("---")
 
 # -----------------------------
-# Show More Jobs
+# Show more jobs
 # -----------------------------
 
-if len(jobs)>25:
+if len(jobs) > 25:
 
     if st.button("Show More Jobs"):
 
-        for i,job in enumerate(jobs[25:],start=26):
+        for i, job in enumerate(jobs[25:], start=26):
 
-            title=job.get("title","Unknown")
-            company=job.get("company_name","N/A")
-            location=job.get("location","N/A")
+            title = job.get("title","Unknown")
+            company = job.get("company_name","N/A")
+            location = job.get("location","N/A")
 
             st.markdown(f"### {i}. {title}")
             st.write(company)
             st.write(location)
 
             st.markdown("---")
-
-# -----------------------------
-# Feedback
-# -----------------------------
-
-st.markdown("## Feedback")
-
-with st.form("feedback"):
-
-    last_name=st.text_input(
-        "Last Name (optional)"
-    )
-
-    helpful=st.radio(
-        "Is this helpful?",
-        ["Yes","Somewhat","No"]
-    )
-
-    pay=st.radio(
-        "Would you pay $10/month?",
-        ["Yes","Maybe","No"]
-    )
-
-    improvement=st.text_area(
-        "Suggestions"
-    )
-
-    submit=st.form_submit_button("Submit")
-
-    if submit:
-
-        try:
-
-            supabase.table("feedback").insert({
-
-                "last_name":last_name,
-                "helpful":helpful,
-                "would_pay":pay,
-                "improvement":improvement
-
-            }).execute()
-
-            st.success("Feedback submitted")
-
-        except:
-
-            st.error("Could not save feedback")
