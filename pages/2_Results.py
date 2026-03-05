@@ -11,21 +11,21 @@ from openai import OpenAI
 
 st.title("🔎 Job Results")
 
-# -----------------------------
+# ---------------------------------
 # Load session data
-# -----------------------------
+# ---------------------------------
 
 query = st.session_state.get("query")
 country = st.session_state.get("country_name", "United States")
 resume_bytes = st.session_state.get("resume_bytes")
 
 if not query:
-    st.warning("No search query found.")
+    st.warning("No search query found. Please go back and run a search.")
     st.stop()
 
-# -----------------------------
+# ---------------------------------
 # Extract resume text
-# -----------------------------
+# ---------------------------------
 
 resume_text = ""
 
@@ -35,44 +35,38 @@ if resume_bytes:
     except:
         resume_text = ""
 
-# -----------------------------
+# ---------------------------------
 # Fetch jobs from SerpAPI
-# -----------------------------
+# ---------------------------------
 
 SERP_API_KEY = st.secrets["SERP_API_KEY"]
 
-jobs = []
+params = {
+    "engine": "google_jobs",
+    "q": f"{query} jobs",
+    "location": country,
+    "hl": "en",
+    "api_key": SERP_API_KEY
+}
 
-for start in range(0, 50, 10):
+response = requests.get(
+    "https://serpapi.com/search",
+    params=params
+)
 
-    params = {
-        "engine": "google_jobs",
-        "q": f"{query} jobs",
-        "location": country,
-        "hl": "en",
-        "start": start,
-        "api_key": SERP_API_KEY
-    }
+data = response.json()
 
-    response = requests.get(
-        "https://serpapi.com/search",
-        params=params
-    )
-
-    data = response.json()
-
-    if "jobs_results" in data:
-        jobs.extend(data["jobs_results"])
+jobs = data.get("jobs_results", [])
 
 if not jobs:
     st.warning("No jobs found. Try a broader job title.")
     st.stop()
 
-# -----------------------------
+# ---------------------------------
 # Resume similarity scoring
-# -----------------------------
+# ---------------------------------
 
-job_descriptions = [j.get("description","") for j in jobs]
+job_descriptions = [j.get("description", "") for j in jobs]
 
 if resume_text and job_descriptions:
 
@@ -96,9 +90,9 @@ if resume_text and job_descriptions:
         reverse=True
     )
 
-# -----------------------------
+# ---------------------------------
 # OpenAI client
-# -----------------------------
+# ---------------------------------
 
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
@@ -121,7 +115,7 @@ Rules:
 Return:
 
 RESUME IMPROVEMENTS
-3 bullets
+3 bullet points
 
 COVER LETTER
 
@@ -148,28 +142,26 @@ Job Description:
     except:
         return "AI generation unavailable."
 
-# -----------------------------
-# Display top matches
-# -----------------------------
+# ---------------------------------
+# Display jobs
+# ---------------------------------
 
 st.subheader("Top Job Matches")
 
-top_jobs = jobs[:25]
+for i, job in enumerate(jobs, start=1):
 
-for i, job in enumerate(top_jobs, start=1):
+    title = job.get("title", "Unknown")
+    company = job.get("company_name", "N/A")
+    location = job.get("location", "N/A")
 
-    title = job.get("title","Unknown")
-    company = job.get("company_name","N/A")
-    location = job.get("location","N/A")
-
-    description = job.get("description","")
+    description = job.get("description", "")
 
     salary = job.get(
         "detected_extensions",
         {}
-    ).get("salary","Not listed")
+    ).get("salary", "Not listed")
 
-    score = job.get("match_score",0)
+    score = job.get("match_score", 0)
 
     st.markdown(f"### {i}. {title}")
 
@@ -202,13 +194,13 @@ for i, job in enumerate(top_jobs, start=1):
 
         for option in job["apply_options"]:
 
-            name = option.get("title","Apply")
+            name = option.get("title", "Apply")
             link = option.get("link")
 
             if link:
                 st.markdown(f"[{name}]({link})")
 
-    # AI resume helper
+    # AI Resume + Cover Letter
     with st.expander("Generate Resume + Cover Letter"):
 
         if st.button(
@@ -226,23 +218,3 @@ for i, job in enumerate(top_jobs, start=1):
             st.code(output)
 
     st.markdown("---")
-
-# -----------------------------
-# Show more jobs
-# -----------------------------
-
-if len(jobs) > 25:
-
-    if st.button("Show More Jobs"):
-
-        for i, job in enumerate(jobs[25:], start=26):
-
-            title = job.get("title","Unknown")
-            company = job.get("company_name","N/A")
-            location = job.get("location","N/A")
-
-            st.markdown(f"### {i}. {title}")
-            st.write(company)
-            st.write(location)
-
-            st.markdown("---")
