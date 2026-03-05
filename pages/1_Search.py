@@ -3,6 +3,10 @@ import os
 
 st.title("🔎 Job Search")
 
+# -------------------------
+# User Session
+# -------------------------
+
 user_email = st.session_state.get("user_email")
 
 if not user_email:
@@ -10,7 +14,7 @@ if not user_email:
     st.stop()
 
 # -------------------------
-# Resume storage
+# Resume Storage
 # -------------------------
 
 RESUME_FOLDER = "data/resumes"
@@ -23,16 +27,17 @@ resume_path = os.path.join(
 
 resume_exists = os.path.exists(resume_path)
 
+# -------------------------
+# Resume Upload
+# -------------------------
+
 if resume_exists:
 
     st.success("Resume already uploaded.")
 
     if st.button("Replace Resume"):
+        os.remove(resume_path)
         resume_exists = False
-
-# -------------------------
-# Upload Resume
-# -------------------------
 
 if not resume_exists:
 
@@ -43,7 +48,7 @@ if not resume_exists:
 
     if resume_file:
 
-        with open(resume_path,"wb") as f:
+        with open(resume_path, "wb") as f:
             f.write(resume_file.getbuffer())
 
         st.success("Resume uploaded successfully.")
@@ -59,19 +64,27 @@ role = st.text_input(
     placeholder="e.g. Data Scientist"
 )
 
+# Country list with code
+countries = [
+    ("United States", "us"),
+    ("Canada", "ca"),
+    ("United Kingdom", "uk"),
+    ("Australia", "au"),
+    ("Germany", "de"),
+    ("Netherlands", "nl"),
+    ("India", "in"),
+    ("Singapore", "sg")
+]
+
 country = st.selectbox(
     "Select Country",
-    [
-        "United States",
-        "Canada",
-        "United Kingdom",
-        "Australia",
-        "Germany",
-        "Netherlands",
-        "India",
-        "Singapore"
-    ]
+    countries,
+    format_func=lambda x: x[0]
 )
+
+# -------------------------
+# Search Button
+# -------------------------
 
 if st.button("Search Jobs"):
 
@@ -79,14 +92,18 @@ if st.button("Search Jobs"):
         st.warning("Please enter a job field.")
         st.stop()
 
+    # Save query
     st.session_state["query"] = role
-    st.session_state["country"] = country
 
-    # load resume
+    # Save country name + code
+    st.session_state["country_name"] = country[0]
+    st.session_state["country_code"] = country[1]
+
+    # Load resume bytes for matching
     if os.path.exists(resume_path):
 
-        with open(resume_path,"rb") as f:
-
+        with open(resume_path, "rb") as f:
             st.session_state["resume_bytes"] = f.read()
 
+    # Go to results page
     st.switch_page("pages/2_Results.py")
