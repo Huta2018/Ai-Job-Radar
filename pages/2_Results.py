@@ -3,26 +3,34 @@ import requests
 import io
 import re
 
-from supabase import create_client
 from pdfminer.high_level import extract_text
+from supabase import create_client
+from openai import OpenAI
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+
 st.title("🔎 Job Results")
 
-# -------------------------
-# Supabase connection
-# -------------------------
+# -----------------------------
+# OpenAI Client
+# -----------------------------
+
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+
+# -----------------------------
+# Supabase Client
+# -----------------------------
 
 supabase = create_client(
     st.secrets["SUPABASE_URL"],
     st.secrets["SUPABASE_KEY"]
 )
 
-# -------------------------
-# Get query
-# -------------------------
+# -----------------------------
+# Get Search Query
+# -----------------------------
 
 query = st.session_state.get("query")
 
@@ -30,9 +38,9 @@ if not query:
     st.warning("No search query found.")
     st.stop()
 
-# -------------------------
-# Resume text extraction
-# -------------------------
+# -----------------------------
+# Resume Extraction
+# -----------------------------
 
 resume_bytes = st.session_state.get("resume_bytes")
 
@@ -44,9 +52,9 @@ if resume_bytes:
     except:
         resume_text = ""
 
-# -------------------------
-# Fetch jobs from SerpAPI
-# -------------------------
+# -----------------------------
+# Fetch Jobs from SerpAPI
+# -----------------------------
 
 SERP_API_KEY = st.secrets["SERP_API_KEY"]
 
@@ -69,48 +77,108 @@ if not jobs:
     st.warning("No jobs found.")
     st.stop()
 
-# -------------------------
-# Resume ↔ Job similarity
-# -------------------------
+# -----------------------------
+# Resume ↔ Job Similarity
+# -----------------------------
 
 job_descriptions = [job.get("description","") for job in jobs]
 
 if resume_text and job_descriptions:
 
-    documents = [resume_text] + job_descriptions
+    docs = [resume_text] + job_descriptions
 
     vectorizer = TfidfVectorizer(stop_words="english")
 
-    tfidf_matrix = vectorizer.fit_transform(documents)
+    tfidf = vectorizer.fit_transform(docs)
 
-    similarity = cosine_similarity(
-        tfidf_matrix[0:1],
-        tfidf_matrix[1:]
+    scores = cosine_similarity(
+        tfidf[0:1],
+        tfidf[1:]
     ).flatten()
 
-    for i, job in enumerate(jobs):
-        job["match_score"] = round(similarity[i] * 100,2)
+    for i,job in enumerate(jobs):
+        job["match_score"] = round(scores[i]*100,2)
 
     jobs = sorted(
         jobs,
-        key=lambda x: x.get("match_score",0),
+        key=lambda x:x.get("match_score",0),
         reverse=True
     )
 
-# -------------------------
-# Display Top 50 Jobs
-# -------------------------
+# -----------------------------
+# AI Resume + Cover Letter
+# -----------------------------
 
-for i, job in enumerate(jobs[:50], start=1):
+def generate_application_materials(
+    resume_text,
+    job_title,
+    company,
+    location,
+    job_description
+):
+
+    prompt = f"""
+You are a professional career assistant.
+
+Goal:
+Create resume improvement suggestions and a cover letter.
+
+Rules:
+- Do NOT invent experience
+- Do NOT change resume meaning
+- Only emphasize relevant skills
+- Keep content truthful
+
+Return exactly:
+
+RESUME ENHANCEMENTS
+3-5 bullets
+
+SUGGESTED RESUME BULLETS
+3 bullets
+
+COVER LETTER
+short professional letter
+
+Resume:
+{resume_text}
+
+Job Title:
+{job_title}
+
+Company:
+{company}
+
+Location:
+{location}
+
+Job Description:
+{job_description}
+"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0.2,
+        messages=[{"role":"user","content":prompt}]
+    )
+
+    return response.choices[0].message.content
+
+
+# -----------------------------
+# Display Jobs
+# -----------------------------
+
+for i,job in enumerate(jobs[:50],start=1):
 
     title = job.get("title","Unknown")
     company = job.get("company_name","N/A")
     location = job.get("location","N/A")
     description = job.get("description","")
 
-    salary = job.get("detected_extensions",{}).get(
-        "salary","Not listed"
-    )
+    salary = job.get(
+        "detected_extensions",{}
+    ).get("salary","Not listed")
 
     match_score = job.get("match_score",0)
 
@@ -121,26 +189,23 @@ for i, job in enumerate(jobs[:50], start=1):
     st.markdown(f"**Location:** {location}")
     st.markdown(f"**Salary:** {salary}")
 
-    # Summary bullet extraction
+    # Summary bullets
     if description:
 
-        sentences = re.split(r'[.!?]', description)
-
-        bullets = sentences[:4]
+        sentences = re.split(r'[.!?]',description)
 
         st.markdown("**Key Highlights:**")
 
-        for b in bullets:
-            if len(b.strip()) > 40:
-                st.markdown(f"- {b.strip()}")
+        for s in sentences[:4]:
+            if len(s.strip())>40:
+                st.markdown(f"- {s.strip()}")
 
     # Full description
     if description:
-
         with st.expander("Read Full Job Description"):
             st.write(description)
 
-    # Application links
+    # Apply links
     if job.get("apply_options"):
 
         st.markdown("**Apply Here:**")
@@ -153,33 +218,52 @@ for i, job in enumerate(jobs[:50], start=1):
             if link:
                 st.markdown(f"- [{name}]({link})")
 
-    # Source
+    # Job source
     if job.get("via"):
         st.markdown(f"**Source:** {job['via']}")
 
+    # AI Resume Generator
+    with st.expander("🧠 Generate Resume + Cover Letter"):
+
+        if st.button(f"Generate Materials {i}",key=f"ai_{i}"):
+
+            if not resume_text:
+                st.warning("Upload resume first.")
+
+            else:
+
+                with st.spinner("Generating AI suggestions..."):
+
+                    ai_output = generate_application_materials(
+                        resume_text,
+                        title,
+                        company,
+                        location,
+                        description
+                    )
+
+                st.markdown("### AI Application Assistant")
+                st.code(ai_output)
+
     st.markdown("---")
 
-# -------------------------
-# SKILL GAP ANALYSIS
-# -------------------------
+
+# -----------------------------
+# Skill Gap Analysis
+# -----------------------------
 
 st.markdown("## 🧠 Career Growth Suggestions")
 
 skills = [
-    "python","sql","machine learning","deep learning",
-    "tensorflow","pytorch","docker","kubernetes",
-    "aws","spark","pandas","data analysis",
-    "statistics","data visualization","power bi",
-    "tableau","cloud","nlp"
+"python","sql","machine learning","deep learning",
+"tensorflow","pytorch","docker","kubernetes",
+"aws","spark","pandas","statistics",
+"data visualization","power bi","tableau","nlp"
 ]
-
-resume_skills = []
 
 resume_lower = resume_text.lower()
 
-for s in skills:
-    if s in resume_lower:
-        resume_skills.append(s)
+resume_skills = [s for s in skills if s in resume_lower]
 
 job_skill_counts = {}
 
@@ -192,25 +276,24 @@ for job in jobs[:20]:
         if s in desc:
             job_skill_counts[s] = job_skill_counts.get(s,0)+1
 
-missing_skills = []
+missing = []
 
 for skill,count in job_skill_counts.items():
 
     if skill not in resume_skills:
-        missing_skills.append((skill,count))
+        missing.append((skill,count))
 
-missing_skills = sorted(
-    missing_skills,
+missing = sorted(
+    missing,
     key=lambda x:x[1],
     reverse=True
 )
 
-if missing_skills:
+if missing:
 
     st.markdown("### Skills To Strengthen")
 
-    for skill,count in missing_skills[:5]:
-
+    for skill,count in missing[:5]:
         st.markdown(f"- **{skill.title()}** (seen in {count} jobs)")
 
     st.markdown("### Suggested Learning Topics")
@@ -220,13 +303,10 @@ if missing_skills:
         "aws":"Cloud Computing for Data Science",
         "docker":"Containerizing Machine Learning Models",
         "spark":"Big Data Processing with Spark",
-        "machine learning":"Advanced Machine Learning Systems",
-        "nlp":"Natural Language Processing Applications",
-        "pytorch":"Deep Learning with PyTorch",
-        "tensorflow":"Deep Learning with TensorFlow"
+        "nlp":"Natural Language Processing Applications"
     }
 
-    for skill,_ in missing_skills[:5]:
+    for skill,_ in missing[:5]:
 
         topic = learning_map.get(
             skill,
@@ -235,13 +315,19 @@ if missing_skills:
 
         st.markdown(f"- {topic}")
 
-# -------------------------
-# FEEDBACK SECTION
-# -------------------------
+# -----------------------------
+# Feedback Section
+# -----------------------------
 
-st.markdown("## 💬 Anonymous Feedback")
+st.markdown("## 💬 Feedback")
 
 with st.form("feedback_form"):
+
+    st.write("Help us improve this tool!")
+
+    last_name = st.text_input(
+        "Last Name (optional – helps us understand diversity of usage)"
+    )
 
     helpful = st.radio(
         "Is the job ranking helpful?",
@@ -269,8 +355,12 @@ with st.form("feedback_form"):
                     "session_id","anon"
                 ),
 
+                "last_name": last_name,
+
                 "helpful": helpful,
+
                 "would_pay": pay,
+
                 "improvement": improvement
 
             }).execute()
