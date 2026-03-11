@@ -218,3 +218,97 @@ for i, job in enumerate(jobs, start=1):
             st.code(output)
 
     st.markdown("---")
+import pandas as pd
+import os
+from datetime import datetime
+
+st.markdown("---")
+st.header("💬 Help Improve AI Job Radar")
+
+st.write(
+    "We are building AI Job Radar to help people find better job matches faster. "
+    "Your feedback helps us improve the product."
+)
+
+# Satisfaction rating
+rating = st.slider(
+    "How useful was AI Job Radar?",
+    min_value=1,
+    max_value=5,
+    value=3,
+    help="1 = Not useful, 5 = Extremely useful"
+)
+
+# Did it show unique jobs
+found_unique = st.radio(
+    "Did this tool show jobs you wouldn't easily find on LinkedIn or Indeed?",
+    ["Yes", "Somewhat", "No"]
+)
+
+# Would they pay
+would_pay = st.radio(
+    "If this tool consistently found high-quality job matches, would you consider paying for it?",
+    ["Yes", "Maybe", "No"]
+)
+
+# Price options only if interested
+preferred_price = None
+
+if would_pay in ["Yes", "Maybe"]:
+    preferred_price = st.radio(
+        "What monthly price would feel reasonable?",
+        [
+            "$5 / month",
+            "$10 / month",
+            "$15 / month",
+            "$20+ / month"
+        ]
+    )
+
+# Feature requests
+features = st.multiselect(
+    "What features would you like to see next?",
+    [
+        "AI Resume Matching",
+        "Auto Apply to Jobs",
+        "Daily Job Alerts",
+        "Company Insights",
+        "Salary Prediction",
+        "Interview Preparation",
+        "LinkedIn Integration"
+    ]
+)
+
+# Comment box
+comment = st.text_area(
+    "Any suggestions to improve AI Job Radar?"
+)
+
+# Submit button
+if st.button("Submit Feedback"):
+
+    feedback = {
+        "rating": rating,
+        "unique_jobs_found": found_unique,
+        "would_pay": would_pay,
+        "preferred_price": preferred_price,
+        "requested_features": ", ".join(features),
+        "comment": comment,
+        "timestamp": datetime.now()
+    }
+
+    file_path = "data/feedback.csv"
+
+    # Ensure data folder exists
+    os.makedirs("data", exist_ok=True)
+
+    # Save feedback
+    if os.path.exists(file_path):
+        df = pd.read_csv(file_path)
+        df = pd.concat([df, pd.DataFrame([feedback])], ignore_index=True)
+    else:
+        df = pd.DataFrame([feedback])
+
+    df.to_csv(file_path, index=False)
+
+    st.success("✅ Thank you! Your feedback helps us improve AI Job Radar.")
