@@ -310,19 +310,17 @@ if st.button("Submit Feedback"):
         "comment": comment,
         "timestamp": datetime.now()
     }
+if st.button("Submit Feedback"):
 
-    file_path = "data/feedback.csv"
+    data = {
+        "anonymous_id": str(uuid.uuid4()),
+        "helpful": found_unique,
+        "would_pay": would_pay,
+        "improvement": comment
+    }
 
-    # Ensure data folder exists
-    os.makedirs("data", exist_ok=True)
+    response = supabase.table("feedback").insert(data).execute()
 
-    # Save feedback
-    if os.path.exists(file_path):
-        df = pd.read_csv(file_path)
-        df = pd.concat([df, pd.DataFrame([feedback])], ignore_index=True)
-    else:
-        df = pd.DataFrame([feedback])
+    st.write(response)
 
-    df.to_csv(file_path, index=False)
-
-    st.success("✅ Thank you! Your feedback helps us improve AI Job Radar.")
+    st.success("✅ Thank you! Your feedback was submitted.")
