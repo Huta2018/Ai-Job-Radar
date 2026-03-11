@@ -9,6 +9,20 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from openai import OpenAI
 
+import streamlit as st
+from supabase import create_client
+import uuid
+
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+
+
+
+
 st.title("🔎 Job Results")
 
 # ---------------------------------
