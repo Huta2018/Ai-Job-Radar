@@ -12,8 +12,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 from openai import OpenAI
 from supabase import create_client
 
+
 # ---------------------------------
-# Secrets / Clients
+# Setup
 # ---------------------------------
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -24,9 +25,6 @@ OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# ---------------------------------
-# Page Title
-# ---------------------------------
 
 st.title("🔎 Job Results")
 
@@ -51,29 +49,28 @@ resume_text = ""
 if resume_bytes:
     try:
         resume_text = extract_text(io.BytesIO(resume_bytes))
-    except Exception:
+    except:
         resume_text = ""
 
+
 # ---------------------------------
-# Fetch jobs from SerpAPI (robust pagination)
+# Fetch ~100 jobs from SerpAPI
 # ---------------------------------
 
 all_jobs = []
 
-# Google Jobs usually returns ~10 per page
-# We fetch up to 100 using safe pagination
-for start in [0, 10, 20, 30, 40, 50, 60, 70, 80, 90]:
+for start in [0,10,20,30,40,50,60,70,80,90]:
 
     params = {
         "engine": "google_jobs",
-        "q": query,                 # do NOT append "jobs"
-        "location": country,
+        "q": f"{query} in {country}",
         "hl": "en",
         "api_key": SERP_API_KEY,
         "start": start
     }
 
     try:
+
         response = requests.get(
             "https://serpapi.com/search",
             params=params,
@@ -87,14 +84,16 @@ for start in [0, 10, 20, 30, 40, 50, 60, 70, 80, 90]:
         if new_jobs:
             all_jobs.extend(new_jobs)
 
-    except Exception:
+    except:
         pass
+
 
 jobs = all_jobs
 
 if not jobs:
-    st.warning("No jobs found. Try another title or location.")
+    st.warning("No jobs found. Try another job title.")
     st.stop()
+
 
 # ---------------------------------
 # Resume similarity scoring
@@ -124,27 +123,22 @@ if resume_text and job_descriptions:
         reverse=True
     )
 
+
 # ---------------------------------
-# AI resume + cover letter generator
+# AI Resume Generator
 # ---------------------------------
 
-def generate_application_materials(resume_text, job_title, company, job_description):
+def generate_application_materials(
+    resume_text,
+    job_title,
+    company,
+    job_description
+):
 
     prompt = f"""
-You are a professional career assistant.
-
 Create resume improvement suggestions and a short cover letter.
 
-Rules:
-- Do not invent experience
-- Only improve wording
-
-Return:
-
-RESUME IMPROVEMENTS
-3 bullet points
-
-COVER LETTER
+Do not invent experience.
 
 Resume:
 {resume_text}
@@ -161,51 +155,60 @@ Job Description:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             temperature=0.2,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role":"user","content":prompt}]
         )
 
         return response.choices[0].message.content
 
-    except Exception:
+    except:
+
         return "AI generation unavailable."
 
+
 # ---------------------------------
-# Display Jobs
+# Display jobs
 # ---------------------------------
 
 st.subheader(f"Top Job Matches ({len(jobs)} jobs found)")
 
 for i, job in enumerate(jobs, start=1):
 
-    title = job.get("title", "Unknown")
-    company = job.get("company_name", "N/A")
-    location = job.get("location", "N/A")
-    description = job.get("description", "")
-    score = job.get("match_score", 0)
+    title = job.get("title","Unknown")
+    company = job.get("company_name","N/A")
+    location = job.get("location","N/A")
+    description = job.get("description","")
+    score = job.get("match_score",0)
 
     salary = job.get(
-        "detected_extensions",
-        {}
-    ).get("salary", "Not listed")
+        "detected_extensions",{}
+    ).get("salary","Not listed")
 
     st.markdown(f"### {i}. {title}")
-    st.write(f"**Match Score:** {score}%")
-    st.write(f"**Company:** {company}")
-    st.write(f"**Location:** {location}")
-    st.write(f"**Salary:** {salary}")
+
+    st.write(f"Match Score: {score}%")
+    st.write(f"Company: {company}")
+    st.write(f"Location: {location}")
+    st.write(f"Salary: {salary}")
+
 
     # Highlights
     if description:
-        sentences = re.split(r'[.!?]', description)
+
+        sentences = re.split(r'[.!?]',description)
+
         st.write("Highlights:")
+
         for s in sentences[:3]:
             if len(s.strip()) > 40:
-                st.write("-", s.strip())
+                st.write("-",s.strip())
+
 
     # Full description
     if description:
+
         with st.expander("Full Job Description"):
             st.write(description)
+
 
     # ---------------------------------
     # Apply Links
@@ -219,23 +222,27 @@ for i, job in enumerate(jobs, start=1):
 
         for option in job["apply_options"]:
 
-            name = option.get("title", "Apply")
+            name = option.get("title","Apply")
             link = option.get("link")
 
             if link:
                 st.markdown(f"🔗 [{name}]({link})")
                 links_found = True
 
-    # Google fallback
+
     google_link = f"https://www.google.com/search?q={title.replace(' ','+')}+{company.replace(' ','+')}+jobs"
+
     st.markdown(f"🌐 [Search this job on Google]({google_link})")
 
-    # LinkedIn fallback
+
     linkedin_link = f"https://www.linkedin.com/jobs/search/?keywords={title.replace(' ','%20')}&location={country.replace(' ','%20')}"
+
     st.markdown(f"💼 [Find similar jobs on LinkedIn]({linkedin_link})")
 
+
     if not links_found:
-        st.info("Direct apply links unavailable — use Google or LinkedIn search above.")
+        st.info("Direct apply links unavailable — use Google or LinkedIn search.")
+
 
     # ---------------------------------
     # AI Resume + Cover Letter
@@ -257,10 +264,12 @@ for i, job in enumerate(jobs, start=1):
 
             st.code(output)
 
+
     st.markdown("---")
 
+
 # ---------------------------------
-# Feedback Section
+# Feedback
 # ---------------------------------
 
 st.header("💬 Help Improve AI Job Radar")
@@ -274,63 +283,34 @@ rating = st.slider(
 
 found_unique = st.radio(
     "Did this tool show jobs you wouldn't easily find elsewhere?",
-    ["Yes", "Somewhat", "No"]
+    ["Yes","Somewhat","No"]
 )
 
 would_pay = st.radio(
-    "If this tool consistently found great job matches, would you pay for it?",
-    ["Yes", "Maybe", "No"]
-)
-
-preferred_price = None
-
-if would_pay in ["Yes", "Maybe"]:
-    preferred_price = st.radio(
-        "What monthly price would feel reasonable?",
-        [
-            "$5 / month",
-            "$10 / month",
-            "$15 / month",
-            "$20+ / month"
-        ]
-    )
-
-features = st.multiselect(
-    "What features should we add next?",
-    [
-        "AI Resume Matching",
-        "Auto Apply to Jobs",
-        "Daily Job Alerts",
-        "Company Insights",
-        "Salary Prediction",
-        "Interview Preparation",
-        "LinkedIn Integration"
-    ]
+    "Would you consider paying for this tool?",
+    ["Yes","Maybe","No"]
 )
 
 comment = st.text_area(
-    "Any suggestions to improve AI Job Radar?"
+    "Suggestions to improve AI Job Radar?"
 )
 
+
 # ---------------------------------
-# Submit Feedback
+# Submit feedback
 # ---------------------------------
 
-if st.button("Submit Feedback", key="submit_feedback"):
+if st.button("Submit Feedback",key="submit_feedback"):
 
     data = {
         "anonymous_id": str(uuid.uuid4()),
         "rating": rating,
         "unique_jobs_found": found_unique,
         "would_pay": would_pay,
-        "preferred_price": preferred_price,
-        "requested_features": ", ".join(features),
         "comment": comment,
         "timestamp": datetime.now().isoformat()
     }
 
-    try:
-        supabase.table("feedback").insert(data).execute()
-        st.success("✅ Thank you! Your feedback was submitted.")
-    except Exception:
-        st.warning("Feedback submission failed. Please try again.")
+    supabase.table("feedback").insert(data).execute()
+
+    st.success("✅ Thank you! Feedback submitted.")
