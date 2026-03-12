@@ -12,6 +12,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from openai import OpenAI
 from supabase import create_client
 
+
 # ---------------------------------
 # Supabase
 # ---------------------------------
@@ -21,11 +22,13 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+
 # ---------------------------------
 # Page Title
 # ---------------------------------
 
 st.title("🔎 Job Results")
+
 
 # ---------------------------------
 # Load session data
@@ -39,6 +42,7 @@ if not query:
     st.warning("No search query found. Please go back and run a search.")
     st.stop()
 
+
 # ---------------------------------
 # Extract resume text
 # ---------------------------------
@@ -51,32 +55,46 @@ if resume_bytes:
     except:
         resume_text = ""
 
+
 # ---------------------------------
-# Fetch jobs from SerpAPI
+# Fetch jobs from SerpAPI (100 jobs)
 # ---------------------------------
 
 SERP_API_KEY = st.secrets["SERP_API_KEY"]
 
-params = {
-    "engine": "google_jobs",
-    "q": f"{query} jobs",
-    "location": country,
-    "hl": "en",
-    "api_key": SERP_API_KEY
-}
+all_jobs = []
 
-response = requests.get(
-    "https://serpapi.com/search",
-    params=params
-)
+for start in range(0, 100, 10):
 
-data = response.json()
+    params = {
+        "engine": "google_jobs",
+        "q": f"{query} jobs",
+        "location": country,
+        "hl": "en",
+        "api_key": SERP_API_KEY,
+        "start": start
+    }
 
-jobs = data.get("jobs_results", [])
+    response = requests.get(
+        "https://serpapi.com/search",
+        params=params
+    )
+
+    data = response.json()
+
+    jobs = data.get("jobs_results", [])
+
+    if not jobs:
+        break
+
+    all_jobs.extend(jobs)
+
+jobs = all_jobs
 
 if not jobs:
     st.warning("No jobs found. Try a broader job title.")
     st.stop()
+
 
 # ---------------------------------
 # Resume similarity scoring
@@ -106,11 +124,13 @@ if resume_text and job_descriptions:
         reverse=True
     )
 
+
 # ---------------------------------
 # OpenAI client
 # ---------------------------------
 
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+
 
 def generate_application_materials(
     resume_text,
@@ -158,6 +178,7 @@ Job Description:
     except:
         return "AI generation unavailable."
 
+
 # ---------------------------------
 # Display jobs
 # ---------------------------------
@@ -202,10 +223,15 @@ for i, job in enumerate(jobs, start=1):
         with st.expander("Full Job Description"):
             st.write(description)
 
-    # Apply links
-    if job.get("apply_options"):
+    # ---------------------------------
+    # Apply Links
+    # ---------------------------------
 
-        st.write("Apply Links:")
+    st.write("Apply Links:")
+
+    links_found = False
+
+    if job.get("apply_options"):
 
         for option in job["apply_options"]:
 
@@ -213,9 +239,22 @@ for i, job in enumerate(jobs, start=1):
             link = option.get("link")
 
             if link:
-                st.markdown(f"[{name}]({link})")
+                st.markdown(f"🔗 [{name}]({link})")
+                links_found = True
 
+    google_search = f"https://www.google.com/search?q={title.replace(' ','+')}+{company.replace(' ','+')}+jobs"
+    st.markdown(f"🌐 [Search this job on Google]({google_search})")
+
+    linkedin_search = f"https://www.linkedin.com/jobs/search/?keywords={title.replace(' ','%20')}&location={country.replace(' ','%20')}"
+    st.markdown(f"💼 [Find similar jobs on LinkedIn]({linkedin_search})")
+
+    if not links_found:
+        st.info("Direct apply links not available. Use Google or LinkedIn search above.")
+
+    # ---------------------------------
     # AI Resume + Cover Letter
+    # ---------------------------------
+
     with st.expander("Generate Resume + Cover Letter"):
 
         if st.button(
@@ -234,6 +273,7 @@ for i, job in enumerate(jobs, start=1):
 
     st.markdown("---")
 
+
 # ---------------------------------
 # Feedback Section
 # ---------------------------------
@@ -241,16 +281,11 @@ for i, job in enumerate(jobs, start=1):
 st.markdown("---")
 st.header("💬 Help Improve AI Job Radar")
 
-st.write(
-    "We are building AI Job Radar to help people find better job matches faster. "
-    "Your feedback helps us improve the product."
-)
-
 rating = st.slider(
     "How useful was AI Job Radar?",
-    min_value=1,
-    max_value=5,
-    value=3
+    1,
+    5,
+    3
 )
 
 found_unique = st.radio(
