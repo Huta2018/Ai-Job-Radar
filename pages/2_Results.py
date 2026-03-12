@@ -78,9 +78,9 @@ data = response.json()
 jobs = data.get("jobs_results", [])
 all_jobs.extend(jobs)
 
-# pagination using next_page_token
+# Fetch more pages (~200 jobs max)
 
-while len(all_jobs) < 100:
+while len(all_jobs) < 200:
 
     token = data.get("serpapi_pagination", {}).get("next_page_token")
 
@@ -107,8 +107,12 @@ while len(all_jobs) < 100:
 
     all_jobs.extend(new_jobs)
 
-
 jobs = all_jobs
+
+
+# ---------------------------------
+# If no jobs found
+# ---------------------------------
 
 if not jobs:
     st.warning("No jobs found. Try another job title.")
@@ -181,6 +185,7 @@ Job Description:
         return response.choices[0].message.content
 
     except:
+
         return "AI generation unavailable."
 
 
@@ -208,6 +213,7 @@ for i, job in enumerate(jobs, start=1):
     st.write(f"Company: {company}")
     st.write(f"Location: {location}")
     st.write(f"Salary: {salary}")
+
 
     # Highlights
     if description:
@@ -275,12 +281,11 @@ for i, job in enumerate(jobs, start=1):
 
             st.code(output)
 
-
     st.markdown("---")
 
 
 # ---------------------------------
-# Feedback
+# Feedback Section
 # ---------------------------------
 
 st.header("💬 Help Improve AI Job Radar")
@@ -297,26 +302,50 @@ found_unique = st.radio(
     ["Yes", "Somewhat", "No"]
 )
 
-would_pay = st.radio(
+would_pay_interest = st.radio(
     "Would you consider paying for this tool?",
     ["Yes", "Maybe", "No"]
 )
+
+price_option = None
+
+if would_pay_interest in ["Yes", "Maybe"]:
+
+    price_option = st.radio(
+        "What monthly price feels reasonable?",
+        [
+            "$5 / month",
+            "$10 / month",
+            "$15 / month",
+            "$20+ / month"
+        ]
+    )
+
 
 comment = st.text_area(
     "Suggestions to improve AI Job Radar?"
 )
 
+
+# ---------------------------------
+# Submit Feedback
+# ---------------------------------
+
 if st.button("Submit Feedback", key="submit_feedback"):
 
     data = {
         "anonymous_id": str(uuid.uuid4()),
-        "rating": rating,
-        "unique_jobs_found": found_unique,
-        "would_pay": would_pay,
-        "comment": comment,
-        "timestamp": datetime.now().isoformat()
+        "helpful": found_unique,
+        "would_pay": price_option if price_option else "No"
     }
 
-    supabase.table("feedback").insert(data).execute()
+    try:
 
-    st.success("✅ Thank you! Feedback submitted.")
+        supabase.table("feedback").insert(data).execute()
+
+        st.success("✅ Thank you! Feedback submitted.")
+
+    except Exception as e:
+
+        st.error("Supabase insert failed")
+        st.write(e)
