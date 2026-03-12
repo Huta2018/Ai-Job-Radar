@@ -80,6 +80,7 @@ for start in range(0, 100, 10):
         )
 
         data = response.json()
+        st.write("SERPAPI RESPONSE:", data)
 
         new_jobs = data.get("jobs_results", [])
 
