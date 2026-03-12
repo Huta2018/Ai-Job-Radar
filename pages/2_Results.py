@@ -55,40 +55,57 @@ if resume_bytes:
 
 
 # ---------------------------------
-# Fetch jobs (~100 jobs)
+# Fetch jobs with new pagination
 # ---------------------------------
+
+params = {
+    "engine": "google_jobs",
+    "q": query,
+    "location": country,
+    "hl": "en",
+    "api_key": SERP_API_KEY
+}
 
 all_jobs = []
 
-for start in range(0, 100, 10):
+response = requests.get(
+    "https://serpapi.com/search",
+    params=params
+)
+
+data = response.json()
+
+jobs = data.get("jobs_results", [])
+all_jobs.extend(jobs)
+
+# pagination using next_page_token
+
+while len(all_jobs) < 100:
+
+    token = data.get("serpapi_pagination", {}).get("next_page_token")
+
+    if not token:
+        break
 
     params = {
         "engine": "google_jobs",
-        "q": query,
-        "location": country,
-        "hl": "en",
-        "api_key": SERP_API_KEY,
-        "start": start
+        "next_page_token": token,
+        "api_key": SERP_API_KEY
     }
 
-    try:
+    response = requests.get(
+        "https://serpapi.com/search",
+        params=params
+    )
 
-        response = requests.get(
-            "https://serpapi.com/search",
-            params=params,
-            timeout=20
-        )
+    data = response.json()
 
-        data = response.json()
-        st.write("SERPAPI RESPONSE:", data)
+    new_jobs = data.get("jobs_results", [])
 
-        new_jobs = data.get("jobs_results", [])
+    if not new_jobs:
+        break
 
-        if new_jobs:
-            all_jobs.extend(new_jobs)
-
-    except Exception as e:
-        st.write("Error fetching jobs:", e)
+    all_jobs.extend(new_jobs)
 
 
 jobs = all_jobs
@@ -192,9 +209,7 @@ for i, job in enumerate(jobs, start=1):
     st.write(f"Location: {location}")
     st.write(f"Salary: {salary}")
 
-
     # Highlights
-
     if description:
 
         sentences = re.split(r'[.!?]', description)
@@ -207,7 +222,6 @@ for i, job in enumerate(jobs, start=1):
 
 
     # Full description
-
     if description:
 
         with st.expander("Full Job Description"):
@@ -220,8 +234,6 @@ for i, job in enumerate(jobs, start=1):
 
     st.write("Apply Links:")
 
-    links_found = False
-
     if job.get("apply_options"):
 
         for option in job["apply_options"]:
@@ -231,7 +243,6 @@ for i, job in enumerate(jobs, start=1):
 
             if link:
                 st.markdown(f"🔗 [{name}]({link})")
-                links_found = True
 
 
     google_link = f"https://www.google.com/search?q={title.replace(' ','+')}+{company.replace(' ','+')}+jobs"
@@ -242,10 +253,6 @@ for i, job in enumerate(jobs, start=1):
     linkedin_link = f"https://www.linkedin.com/jobs/search/?keywords={title.replace(' ','%20')}&location={country.replace(' ','%20')}"
 
     st.markdown(f"💼 [Find similar jobs on LinkedIn]({linkedin_link})")
-
-
-    if not links_found:
-        st.info("Direct apply links unavailable — use Google or LinkedIn search.")
 
 
     # ---------------------------------
@@ -298,11 +305,6 @@ would_pay = st.radio(
 comment = st.text_area(
     "Suggestions to improve AI Job Radar?"
 )
-
-
-# ---------------------------------
-# Submit feedback
-# ---------------------------------
 
 if st.button("Submit Feedback", key="submit_feedback"):
 
