@@ -27,6 +27,7 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 st.title("🔎 Job Results")
 
+
 # ---------------------------------
 # Load session data
 # ---------------------------------
@@ -38,6 +39,7 @@ resume_bytes = st.session_state.get("resume_bytes")
 if not query:
     st.warning("No search query found. Please go back and run a search.")
     st.stop()
+
 
 # ---------------------------------
 # Extract resume text
@@ -51,8 +53,9 @@ if resume_bytes:
     except:
         resume_text = ""
 
+
 # ---------------------------------
-# Fetch jobs from SerpAPI (~100 jobs)
+# Fetch jobs (~100 jobs)
 # ---------------------------------
 
 all_jobs = []
@@ -77,15 +80,14 @@ for start in range(0, 100, 10):
         )
 
         data = response.json()
-	st.write(data)
 
         new_jobs = data.get("jobs_results", [])
 
         if new_jobs:
             all_jobs.extend(new_jobs)
 
-    except:
-        pass
+    except Exception as e:
+        st.write("Error fetching jobs:", e)
 
 
 jobs = all_jobs
@@ -93,6 +95,7 @@ jobs = all_jobs
 if not jobs:
     st.warning("No jobs found. Try another job title.")
     st.stop()
+
 
 # ---------------------------------
 # Resume similarity scoring
@@ -122,8 +125,9 @@ if resume_text and job_descriptions:
         reverse=True
     )
 
+
 # ---------------------------------
-# AI Resume Generator
+# AI Resume + Cover Letter
 # ---------------------------------
 
 def generate_application_materials(
@@ -153,7 +157,7 @@ Job Description:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             temperature=0.2,
-            messages=[{"role":"user","content":prompt}]
+            messages=[{"role": "user", "content": prompt}]
         )
 
         return response.choices[0].message.content
@@ -161,23 +165,24 @@ Job Description:
     except:
         return "AI generation unavailable."
 
+
 # ---------------------------------
-# Display jobs
+# Display Jobs
 # ---------------------------------
 
 st.subheader(f"Top Job Matches ({len(jobs)} jobs found)")
 
 for i, job in enumerate(jobs, start=1):
 
-    title = job.get("title","Unknown")
-    company = job.get("company_name","N/A")
-    location = job.get("location","N/A")
-    description = job.get("description","")
-    score = job.get("match_score",0)
+    title = job.get("title", "Unknown")
+    company = job.get("company_name", "N/A")
+    location = job.get("location", "N/A")
+    description = job.get("description", "")
+    score = job.get("match_score", 0)
 
     salary = job.get(
-        "detected_extensions",{}
-    ).get("salary","Not listed")
+        "detected_extensions", {}
+    ).get("salary", "Not listed")
 
     st.markdown(f"### {i}. {title}")
 
@@ -186,22 +191,27 @@ for i, job in enumerate(jobs, start=1):
     st.write(f"Location: {location}")
     st.write(f"Salary: {salary}")
 
+
     # Highlights
+
     if description:
 
-        sentences = re.split(r'[.!?]',description)
+        sentences = re.split(r'[.!?]', description)
 
         st.write("Highlights:")
 
         for s in sentences[:3]:
             if len(s.strip()) > 40:
-                st.write("-",s.strip())
+                st.write("-", s.strip())
+
 
     # Full description
+
     if description:
 
         with st.expander("Full Job Description"):
             st.write(description)
+
 
     # ---------------------------------
     # Apply Links
@@ -215,26 +225,30 @@ for i, job in enumerate(jobs, start=1):
 
         for option in job["apply_options"]:
 
-            name = option.get("title","Apply")
+            name = option.get("title", "Apply")
             link = option.get("link")
 
             if link:
                 st.markdown(f"🔗 [{name}]({link})")
                 links_found = True
 
+
     google_link = f"https://www.google.com/search?q={title.replace(' ','+')}+{company.replace(' ','+')}+jobs"
 
     st.markdown(f"🌐 [Search this job on Google]({google_link})")
+
 
     linkedin_link = f"https://www.linkedin.com/jobs/search/?keywords={title.replace(' ','%20')}&location={country.replace(' ','%20')}"
 
     st.markdown(f"💼 [Find similar jobs on LinkedIn]({linkedin_link})")
 
+
     if not links_found:
         st.info("Direct apply links unavailable — use Google or LinkedIn search.")
 
+
     # ---------------------------------
-    # AI Resume + Cover Letter
+    # AI Resume Generator
     # ---------------------------------
 
     with st.expander("Generate Resume + Cover Letter"):
@@ -252,6 +266,7 @@ for i, job in enumerate(jobs, start=1):
             )
 
             st.code(output)
+
 
     st.markdown("---")
 
@@ -271,23 +286,24 @@ rating = st.slider(
 
 found_unique = st.radio(
     "Did this tool show jobs you wouldn't easily find elsewhere?",
-    ["Yes","Somewhat","No"]
+    ["Yes", "Somewhat", "No"]
 )
 
 would_pay = st.radio(
     "Would you consider paying for this tool?",
-    ["Yes","Maybe","No"]
+    ["Yes", "Maybe", "No"]
 )
 
 comment = st.text_area(
     "Suggestions to improve AI Job Radar?"
 )
 
+
 # ---------------------------------
 # Submit feedback
 # ---------------------------------
 
-if st.button("Submit Feedback",key="submit_feedback"):
+if st.button("Submit Feedback", key="submit_feedback"):
 
     data = {
         "anonymous_id": str(uuid.uuid4()),
