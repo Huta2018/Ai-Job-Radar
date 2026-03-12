@@ -2,26 +2,28 @@ import streamlit as st
 import requests
 import io
 import re
+import uuid
+from datetime import datetime
 
 from pdfminer.high_level import extract_text
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from openai import OpenAI
-
-import streamlit as st
 from supabase import create_client
-import uuid
+
+# ---------------------------------
+# Supabase
+# ---------------------------------
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-
-
-
-
+# ---------------------------------
+# Page Title
+# ---------------------------------
 
 st.title("🔎 Job Results")
 
@@ -148,7 +150,7 @@ Job Description:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             temperature=0.2,
-            messages=[{"role":"user","content":prompt}]
+            messages=[{"role": "user", "content": prompt}]
         )
 
         return response.choices[0].message.content
@@ -167,7 +169,6 @@ for i, job in enumerate(jobs, start=1):
     title = job.get("title", "Unknown")
     company = job.get("company_name", "N/A")
     location = job.get("location", "N/A")
-
     description = job.get("description", "")
 
     salary = job.get(
@@ -184,7 +185,7 @@ for i, job in enumerate(jobs, start=1):
     st.write(f"Location: {location}")
     st.write(f"Salary: {salary}")
 
-    # Short summary
+    # Highlights
     if description:
 
         sentences = re.split(r'[.!?]', description)
@@ -232,9 +233,10 @@ for i, job in enumerate(jobs, start=1):
             st.code(output)
 
     st.markdown("---")
-import pandas as pd
-import os
-from datetime import datetime
+
+# ---------------------------------
+# Feedback Section
+# ---------------------------------
 
 st.markdown("---")
 st.header("💬 Help Improve AI Job Radar")
@@ -244,28 +246,23 @@ st.write(
     "Your feedback helps us improve the product."
 )
 
-# Satisfaction rating
 rating = st.slider(
     "How useful was AI Job Radar?",
     min_value=1,
     max_value=5,
-    value=3,
-    help="1 = Not useful, 5 = Extremely useful"
+    value=3
 )
 
-# Did it show unique jobs
 found_unique = st.radio(
     "Did this tool show jobs you wouldn't easily find on LinkedIn or Indeed?",
     ["Yes", "Somewhat", "No"]
 )
 
-# Would they pay
 would_pay = st.radio(
     "If this tool consistently found high-quality job matches, would you consider paying for it?",
     ["Yes", "Maybe", "No"]
 )
 
-# Price options only if interested
 preferred_price = None
 
 if would_pay in ["Yes", "Maybe"]:
@@ -279,7 +276,6 @@ if would_pay in ["Yes", "Maybe"]:
         ]
     )
 
-# Feature requests
 features = st.multiselect(
     "What features would you like to see next?",
     [
@@ -293,34 +289,27 @@ features = st.multiselect(
     ]
 )
 
-# Comment box
 comment = st.text_area(
     "Any suggestions to improve AI Job Radar?"
 )
 
-# Submit button
-if st.button("Submit Feedback"):
+# ---------------------------------
+# Submit Feedback
+# ---------------------------------
 
-    feedback = {
+if st.button("Submit Feedback", key="submit_feedback"):
+
+    data = {
+        "anonymous_id": str(uuid.uuid4()),
         "rating": rating,
         "unique_jobs_found": found_unique,
         "would_pay": would_pay,
         "preferred_price": preferred_price,
         "requested_features": ", ".join(features),
         "comment": comment,
-        "timestamp": datetime.now()
-    }
-if st.button("Submit Feedback"):
-
-    data = {
-        "anonymous_id": str(uuid.uuid4()),
-        "helpful": found_unique,
-        "would_pay": would_pay,
-        "improvement": comment
+        "timestamp": datetime.now().isoformat()
     }
 
-    response = supabase.table("feedback").insert(data).execute()
-
-    st.write(response)
+    supabase.table("feedback").insert(data).execute()
 
     st.success("✅ Thank you! Your feedback was submitted.")
