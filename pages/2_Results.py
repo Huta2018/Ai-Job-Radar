@@ -77,6 +77,7 @@ for start in range(0, 100, 10):
         )
 
         data = response.json()
+	st.write(data)
 
         new_jobs = data.get("jobs_results", [])
 
